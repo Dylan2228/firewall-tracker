@@ -267,7 +267,7 @@ class SettingsWindow(ctk.CTkToplevel):
             modifiers = []
             if event.state & 0x0004: modifiers.append("Control")
             if event.state & 0x0001: modifiers.append("Shift")
-            if event.state & 0x20000 or event.state & 0x0008: modifiers.append("Alt")
+            if event.state & 131072: modifiers.append("Alt")
                 
             bind_str = f"<{'-'.join(modifiers + [event.keysym])}>" if modifiers else f"<{event.keysym}>"
             entry_widget.delete(0, "end")
