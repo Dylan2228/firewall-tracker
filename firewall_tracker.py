@@ -9,7 +9,7 @@ import shutil
 from typing import List
 from roblox_console import RobloxConsoleStreamer
 
-CURRENT_VERSION = "v1.0.2"
+CURRENT_VERSION = "v1.1.1"
 GITHUB_API_URL = "https://api.github.com/repos/Dylan2228/firewall-tracker/releases/latest"
 
 # --- App Data Paths ---
@@ -452,15 +452,15 @@ class FirewallTrackerApp(ctk.CTk):
                 bat_content = f"""@echo off
 timeout /t 2 /nobreak > NUL
 move /Y "{new_exe_path}" "{exe_path}"
-start "" "{exe_path}"
+explorer.exe "{exe_path}"
 del "%~f0"
 """
                 with open(bat_path, "w") as f:
                     f.write(bat_content)
                 
                 import subprocess
-                DETACHED_PROCESS = 0x00000008
-                subprocess.Popen(["cmd.exe", "/c", bat_path], creationflags=DETACHED_PROCESS)
+                CREATE_NO_WINDOW = 0x08000000
+                subprocess.Popen(["cmd.exe", "/c", bat_path], creationflags=CREATE_NO_WINDOW)
                 
                 self.after(0, self.destroy)
                 
