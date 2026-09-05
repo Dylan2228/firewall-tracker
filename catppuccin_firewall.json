@@ -1,0 +1,43 @@
+{
+  "CTk": {
+    "fg_color": ["#F2F2F2", "#1E1E2E"]
+  },
+  "CTkToplevel": {
+    "fg_color": ["#F2F2F2", "#1E1E2E"]
+  },
+  "CTkFrame": {
+    "corner_radius": 6,
+    "border_width": 0,
+    "fg_color": ["#E5E5E5", "#181825"],
+    "top_fg_color": ["#DBDBDB", "#11111B"],
+    "border_color": ["#CCCCCC", "#313244"]
+  },
+  "CTkButton": {
+    "corner_radius": 6,
+    "border_width": 0,
+    "fg_color": ["#FF5D00", "#F38BA8"],
+    "hover_color": ["#D94F00", "#F9E2AF"],
+    "border_color": ["#CCCCCC", "#313244"],
+    "text_color": ["#FFFFFF", "#11111B"],
+    "text_color_disabled": ["#888888", "#A6ADC8"]
+  },
+  "CTkLabel": {
+    "corner_radius": 0,
+    "fg_color": "transparent",
+    "text_color": ["#11111B", "#CDD6F4"]
+  },
+  "CTkEntry": {
+    "corner_radius": 6,
+    "border_width": 2,
+    "fg_color": ["#FFFFFF", "#11111B"],
+    "border_color": ["#FF5D00", "#F38BA8"],
+    "text_color": ["#11111B", "#CDD6F4"]
+  },
+  "CTkOptionMenu": {
+    "corner_radius": 6,
+    "fg_color": ["#FF5D00", "#F38BA8"],
+    "button_color": ["#D94F00", "#F9E2AF"],
+    "button_hover_color": ["#B34100", "#89B4FA"],
+    "text_color": ["#FFFFFF", "#11111B"]
+  }
+}
