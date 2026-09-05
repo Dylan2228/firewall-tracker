@@ -3,14 +3,18 @@ import time
 import os
 import sys
 import json
+import threading
+import urllib.request
+import shutil
 from typing import List
 from roblox_console import RobloxConsoleStreamer
 
+CURRENT_VERSION = "v1.0.2"
+GITHUB_API_URL = "https://api.github.com/repos/Dylan2228/firewall-tracker/releases/latest"
+
 # --- App Data Paths ---
-if getattr(sys, 'frozen', False):
-    APP_DIR = os.path.dirname(sys.executable)
-else:
-    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "FirewallTracker")
+os.makedirs(APP_DIR, exist_ok=True)
 
 SETTINGS_FILE = os.path.join(APP_DIR, "firewall_settings.json")
 
@@ -320,12 +324,11 @@ class SettingsWindow(ctk.CTkToplevel):
     def open_debug(self):
         self.parent.open_debug_window()
 
-
 class FirewallTrackerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Firewall Tracker")
+        self.title(f"Firewall Tracker - {CURRENT_VERSION}")
         saved = app_settings.get("geometries", {}).get("main")
         self.geometry(saved if saved else "800x250")
 
@@ -350,6 +353,81 @@ class FirewallTrackerApp(ctk.CTk):
         
         self.update_stats_ui()
         self.update_timer_loop()
+        
+        if getattr(sys, 'frozen', False):
+            self.check_for_updates()
+
+    def check_for_updates(self):
+        def update_thread():
+            try:
+                req = urllib.request.Request(GITHUB_API_URL, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = json.loads(response.read().decode())
+                    latest_version = data.get("tag_name", "")
+                    
+                    if latest_version and latest_version.replace("v","") > CURRENT_VERSION.replace("v",""):
+                        exe_url = None
+                        for asset in data.get("assets", []):
+                            if asset.get("name", "").endswith(".exe"):
+                                exe_url = asset.get("browser_download_url")
+                                break
+                        
+                        if exe_url:
+                            self.after(2000, lambda: self.prompt_update(latest_version, exe_url))
+            except Exception as e:
+                self.after(0, self.log_debug, f"Update check failed: {e}")
+                
+        threading.Thread(target=update_thread, daemon=True).start()
+
+    def prompt_update(self, version, download_url):
+        import tkinter.messagebox
+        result = tkinter.messagebox.askyesno(
+            "Update Available", 
+            f"A new version of Firewall Tracker ({version}) is available!\n\nWould you like to download and install it now?"
+        )
+        if result:
+            self.perform_update(download_url)
+
+    def perform_update(self, download_url):
+        dl_win = ctk.CTkToplevel(self)
+        dl_win.title("Updating...")
+        dl_win.geometry("300x120")
+        dl_win.attributes("-topmost", True)
+        dl_lbl = ctk.CTkLabel(dl_win, text="Downloading update, please wait...", font=("Arial", 14))
+        dl_lbl.pack(expand=True)
+        self.update()
+        
+        def download_thread():
+            try:
+                exe_path = sys.executable
+                new_exe_path = os.path.join(APP_DIR, "firewall_tracker_new.exe")
+                
+                req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response, open(new_exe_path, 'wb') as out_file:
+                    shutil.copyfileobj(response, out_file)
+                
+                bat_path = os.path.join(os.environ.get("TEMP", os.getcwd()), "update_tracker.bat")
+                
+                bat_content = f"""@echo off
+timeout /t 2 /nobreak > NUL
+move /Y "{new_exe_path}" "{exe_path}"
+start "" "{exe_path}"
+del "%~f0"
+"""
+                with open(bat_path, "w") as f:
+                    f.write(bat_content)
+                
+                import subprocess
+                DETACHED_PROCESS = 0x00000008
+                subprocess.Popen(["cmd.exe", "/c", bat_path], creationflags=DETACHED_PROCESS)
+                
+                self.after(0, self.destroy)
+                
+            except Exception as e:
+                self.after(0, lambda: dl_lbl.configure(text=f"Update failed:\n{e}"))
+                self.after(0, self.log_debug, f"Update failed: {e}")
+                
+        threading.Thread(target=download_thread, daemon=True).start()
 
     def log_debug(self, msg):
         self.debug_logs.append(msg)
