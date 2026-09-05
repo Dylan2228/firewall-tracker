@@ -15,7 +15,12 @@ def load_settings():
                 return json.load(f)
         except:
             pass
-    return {"theme": "Default (Blue)"}
+    return {
+        "theme": "Default (Blue)",
+        "keybind_ok": "<Control-1>",
+        "keybind_dnf": "<Control-2>",
+        "keybind_delete": "<Control-3>"
+    }
 
 def save_settings(settings):
     with open(SETTINGS_FILE, "w") as f:
@@ -69,12 +74,37 @@ class Run:
     def value(self):
         return float('inf') if self.penalty == "DNF" else self.time
 
+STATS_FILE = "firewall_stats.json"
+
+def load_runs() -> List[Run]:
+    runs = []
+    if os.path.exists(STATS_FILE):
+        try:
+            with open(STATS_FILE, "r") as f:
+                data = json.load(f)
+                for item in data:
+                    r = Run(item["time"])
+                    r.penalty = item.get("penalty")
+                    runs.append(r)
+        except Exception:
+            pass
+    return runs
+
+def save_runs(runs: List[Run]):
+    data = [{"time": r.time, "penalty": r.penalty} for r in runs]
+    try:
+        with open(STATS_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
 class StatsManager:
     def __init__(self):
-        self.runs: List[Run] = []
+        self.runs: List[Run] = load_runs()
 
     def add_time(self, t: float):
         self.runs.append(Run(t))
+        save_runs(self.runs)
 
     def get_best_single(self):
         valid = [r.time for r in self.runs if r.penalty != "DNF"]
@@ -184,24 +214,86 @@ class SettingsWindow(ctk.CTkToplevel):
         self.parent = parent
         self.title("Settings")
         saved = app_settings.get("geometries", {}).get("settings")
-        self.geometry(saved if saved else "300x250")
+        self.geometry(saved if saved else "350x300")
         
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(self, text="Theme:", font=("Arial", 14)).grid(row=0, column=0, padx=10, pady=20, sticky="e")
-        
+        ctk.CTkLabel(self, text="Theme:", font=("Arial", 14)).grid(row=0, column=0, padx=10, pady=10, sticky="e")
         self.theme_menu = ctk.CTkOptionMenu(self, values=["Default (Blue)", "Catppuccin", "Custom Firewall"], command=self.change_theme)
-        self.theme_menu.grid(row=0, column=1, padx=10, pady=20, sticky="w")
+        self.theme_menu.grid(row=0, column=1, padx=10, pady=10, sticky="w")
         self.theme_menu.set(app_settings["theme"])
 
         self.restart_lbl = ctk.CTkLabel(self, text="", text_color="red", font=("Arial", 12))
         self.restart_lbl.grid(row=1, column=0, columnspan=2)
 
+        # Keybinds
+        ctk.CTkLabel(self, text="OK Keybind:").grid(row=2, column=0, padx=10, pady=5, sticky="e")
+        self.kb_ok = ctk.CTkEntry(self, width=120)
+        self.kb_ok.insert(0, app_settings.get("keybind_ok", "<Control-1>"))
+        self.kb_ok.grid(row=2, column=1, padx=10, pady=5, sticky="w")
+        ctk.CTkButton(self, text="Set", width=40, command=lambda: self.capture_keybind(self.kb_ok)).grid(row=2, column=2, padx=5, sticky="w")
+
+        ctk.CTkLabel(self, text="DNF Keybind:").grid(row=3, column=0, padx=10, pady=5, sticky="e")
+        self.kb_dnf = ctk.CTkEntry(self, width=120)
+        self.kb_dnf.insert(0, app_settings.get("keybind_dnf", "<Control-2>"))
+        self.kb_dnf.grid(row=3, column=1, padx=10, pady=5, sticky="w")
+        ctk.CTkButton(self, text="Set", width=40, command=lambda: self.capture_keybind(self.kb_dnf)).grid(row=3, column=2, padx=5, sticky="w")
+
+        ctk.CTkLabel(self, text="DEL Keybind:").grid(row=4, column=0, padx=10, pady=5, sticky="e")
+        self.kb_delete = ctk.CTkEntry(self, width=120)
+        self.kb_delete.insert(0, app_settings.get("keybind_delete", "<Control-3>"))
+        self.kb_delete.grid(row=4, column=1, padx=10, pady=5, sticky="w")
+        ctk.CTkButton(self, text="Set", width=40, command=lambda: self.capture_keybind(self.kb_delete)).grid(row=4, column=2, padx=5, sticky="w")
+
+        self.apply_btn = ctk.CTkButton(self, text="Apply Keybinds", command=self.apply_keybinds)
+        self.apply_btn.grid(row=5, column=0, columnspan=3, pady=10)
+
         self.debug_btn = ctk.CTkButton(self, text="Open Debug Console", command=self.open_debug, fg_color="gray", hover_color="darkgray")
-        self.debug_btn.grid(row=2, column=0, columnspan=2, pady=20)
+        self.debug_btn.grid(row=6, column=0, columnspan=3, pady=10)
+
+    def capture_keybind(self, entry_widget):
+        self.focus_set()
+        entry_widget.delete(0, "end")
+        entry_widget.insert(0, "Press key...")
+        
+        def on_key(event):
+            if event.keysym in ['Control_L', 'Control_R', 'Shift_L', 'Shift_R', 'Alt_L', 'Alt_R', 'Win_L', 'Win_R']:
+                return
+                
+            self.unbind("<Key>")
+            modifiers = []
+            if event.state & 0x0004: modifiers.append("Control")
+            if event.state & 0x0001: modifiers.append("Shift")
+            if event.state & 0x20000 or event.state & 0x0008: modifiers.append("Alt")
+                
+            bind_str = f"<{'-'.join(modifiers + [event.keysym])}>" if modifiers else f"<{event.keysym}>"
+            entry_widget.delete(0, "end")
+            entry_widget.insert(0, bind_str)
+            
+        self.bind("<Key>", on_key)
+
+    def apply_keybinds(self):
+        try:
+            self.parent.unbind(app_settings.get("keybind_ok", "<Control-1>"))
+            self.parent.unbind(app_settings.get("keybind_dnf", "<Control-2>"))
+            self.parent.unbind(app_settings.get("keybind_delete", "<Control-3>"))
+        except:
+            pass
+            
+        app_settings["keybind_ok"] = self.kb_ok.get()
+        app_settings["keybind_dnf"] = self.kb_dnf.get()
+        app_settings["keybind_delete"] = self.kb_delete.get()
+        save_settings(app_settings)
+        
+        self.parent.bind(app_settings["keybind_ok"], self.parent.set_ok)
+        self.parent.bind(app_settings["keybind_dnf"], self.parent.set_dnf)
+        self.parent.bind(app_settings["keybind_delete"], self.parent.delete_last)
+        
+        import tkinter.messagebox
+        tkinter.messagebox.showinfo("Success", "Keybinds applied!\n(Use Tkinter format like <Control-1>)")
 
     def on_closing(self):
         app_settings.setdefault("geometries", {})["settings"] = self.geometry()
@@ -245,6 +337,10 @@ class FirewallTrackerApp(ctk.CTk):
         self.setup_streamer()
 
         self.bind("<space>", self.manual_trigger)
+        self.bind(app_settings.get("keybind_ok", "<Control-1>"), self.set_ok)
+        self.bind(app_settings.get("keybind_dnf", "<Control-2>"), self.set_dnf)
+        self.bind(app_settings.get("keybind_delete", "<Control-3>"), self.delete_last)
+        
         self.update_timer_loop()
 
     def log_debug(self, msg):
@@ -375,20 +471,29 @@ class FirewallTrackerApp(ctk.CTk):
         self.streamer = RobloxConsoleStreamer(self.on_roblox_log)
         self.streamer.start()
 
-    def set_ok(self):
+    def set_ok(self, event=None):
+        if self.timer_state in ["RUNNING", "PAUSED"]:
+            self.stop_timer()
         if self.stats.runs and self.timer_state == "STOPPED":
             self.stats.runs[-1].penalty = None
             self.update_stats_ui()
+            save_runs(self.stats.runs)
 
-    def set_dnf(self):
+    def set_dnf(self, event=None):
+        if self.timer_state in ["RUNNING", "PAUSED"]:
+            self.stop_timer()
         if self.stats.runs and self.timer_state == "STOPPED":
             self.stats.runs[-1].penalty = "DNF"
             self.update_stats_ui()
+            save_runs(self.stats.runs)
 
-    def delete_last(self):
+    def delete_last(self, event=None):
+        if self.timer_state in ["RUNNING", "PAUSED"]:
+            self.stop_timer()
         if self.stats.runs and self.timer_state == "STOPPED":
             self.stats.runs.pop()
             self.update_stats_ui()
+            save_runs(self.stats.runs)
 
     def on_roblox_log(self, time_str: str, level: str, message: str):
         msg_lower = message.lower().strip()
