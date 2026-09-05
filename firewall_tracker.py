@@ -124,11 +124,12 @@ class StatsManager:
         return min(valid)
 
     def get_best_ao_details(self, n: int):
+        valid = [r for r in self.runs if r.penalty != "DNF"]
         best = None
         best_details = None
-        for i in range(n, len(self.runs) + 1):
-            subset = self.runs[i-n:i]
-            recent = [(r.value, idx) for idx, r in enumerate(subset)]
+        for i in range(n, len(valid) + 1):
+            subset = valid[i-n:i]
+            recent = [(r.time, idx) for idx, r in enumerate(subset)]
             sorted_recent = sorted(recent, key=lambda x: x[0])
             
             drop_count = math.ceil(n * 0.05)
@@ -138,23 +139,22 @@ class StatsManager:
             
             kept = [x[0] for x in sorted_recent[drop_count:-drop_count]] if drop_count > 0 else [x[0] for x in sorted_recent]
             
-            if float('inf') not in kept:
-                avg = sum(kept) / len(kept)
-                if best is None or avg < best:
-                    best = avg
+            avg = sum(kept) / len(kept)
+            if best is None or avg < best:
+                best = avg
+                
+                if n == 5:
+                    details = []
+                    for idx, r in enumerate(subset):
+                        t_str = f"{r.time:.3f}"
+                        if idx in dropped_indices:
+                            details.append(f"({t_str})")
+                        else:
+                            details.append(t_str)
+                    best_details = "\n".join(details)
+                else:
+                    best_details = None
                     
-                    if n == 5:
-                        details = []
-                        for idx, r in enumerate(subset):
-                            t_str = "DNF" if r.value == float('inf') else f"{r.time:.3f}"
-                            if idx in dropped_indices:
-                                details.append(f"({t_str})")
-                            else:
-                                details.append(t_str)
-                        best_details = "\n".join(details)
-                    else:
-                        best_details = None
-                        
         return best, best_details
 
     def get_session_mean(self):
@@ -164,24 +164,22 @@ class StatsManager:
         return sum(valid) / len(valid)
 
     def calculate_ao(self, n: int):
-        if len(self.runs) < n:
+        valid = [r for r in self.runs if r.penalty != "DNF"]
+        if len(valid) < n:
             return None
-        recent = [r.value for r in self.runs[-n:]]
+        recent = [r.time for r in valid[-n:]]
         recent.sort()
         drop_count = math.ceil(n * 0.05)
         kept = recent[drop_count : -drop_count] if drop_count > 0 else recent
         if not kept:
             return None
-        if float('inf') in kept:
-            return float('inf')
         return sum(kept) / len(kept)
 
     def calculate_mo(self, n: int):
-        if len(self.runs) < n:
+        valid = [r for r in self.runs if r.penalty != "DNF"]
+        if len(valid) < n:
             return None
-        recent = [r.value for r in self.runs[-n:]]
-        if float('inf') in recent:
-            return float('inf')
+        recent = [r.time for r in valid[-n:]]
         return sum(recent) / len(recent)
 
 def format_time(t) -> str:
@@ -583,7 +581,7 @@ del "%~f0"
         
         self.count_frame = ctk.CTkFrame(self.right_top_frame)
         self.count_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 5))
-        ctk.CTkLabel(self.count_frame, text="SOLVE COUNT", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
+        ctk.CTkLabel(self.count_frame, text="FIREWALL COUNT", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
         self.lbl_count = ctk.CTkLabel(self.count_frame, text="0", font=("Consolas", 24, "bold"))
         self.lbl_count.pack(anchor="w", padx=10, pady=(0, 10))
 
