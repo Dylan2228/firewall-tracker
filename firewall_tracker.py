@@ -6,8 +6,15 @@ import json
 from typing import List
 from roblox_console import RobloxConsoleStreamer
 
+# --- App Data Paths ---
+if getattr(sys, 'frozen', False):
+    APP_DIR = os.path.dirname(sys.executable)
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+SETTINGS_FILE = os.path.join(APP_DIR, "firewall_settings.json")
+
 # --- Load Settings ---
-SETTINGS_FILE = "firewall_settings.json"
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
         try:
@@ -74,7 +81,7 @@ class Run:
     def value(self):
         return float('inf') if self.penalty == "DNF" else self.time
 
-STATS_FILE = "firewall_stats.json"
+STATS_FILE = os.path.join(APP_DIR, "firewall_stats.json")
 
 def load_runs() -> List[Run]:
     runs = []
@@ -341,6 +348,7 @@ class FirewallTrackerApp(ctk.CTk):
         self.bind(app_settings.get("keybind_dnf", "<Control-2>"), self.set_dnf)
         self.bind(app_settings.get("keybind_delete", "<Control-3>"), self.delete_last)
         
+        self.update_stats_ui()
         self.update_timer_loop()
 
     def log_debug(self, msg):

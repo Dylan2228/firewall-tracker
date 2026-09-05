@@ -143,9 +143,10 @@ class RobloxConsoleStreamer:
                 pass
         self._file_path = path
         self._fh = open(path, "r", encoding="utf-8", errors="ignore")
-        existing = self._fh.read()
-        if existing:
-            self._process(existing)
+        
+        # Seek to the end of the file to ignore historical logs.
+        # Reading old logs causes instant start/stop triggers and creates fake 0.001s runs!
+        self._fh.seek(0, 2)
 
     def _process(self, text: str) -> None:
         for raw_line in text.splitlines():
