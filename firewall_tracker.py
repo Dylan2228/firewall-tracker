@@ -123,6 +123,40 @@ class StatsManager:
             return None
         return min(valid)
 
+    def get_best_ao_details(self, n: int):
+        best = None
+        best_details = None
+        for i in range(n, len(self.runs) + 1):
+            subset = self.runs[i-n:i]
+            recent = [(r.value, idx) for idx, r in enumerate(subset)]
+            sorted_recent = sorted(recent, key=lambda x: x[0])
+            
+            drop_count = math.ceil(n * 0.05)
+            worst_indices = [x[1] for x in sorted_recent[-drop_count:]] if drop_count > 0 else []
+            best_indices = [x[1] for x in sorted_recent[:drop_count]] if drop_count > 0 else []
+            dropped_indices = set(worst_indices + best_indices)
+            
+            kept = [x[0] for x in sorted_recent[drop_count:-drop_count]] if drop_count > 0 else [x[0] for x in sorted_recent]
+            
+            if float('inf') not in kept:
+                avg = sum(kept) / len(kept)
+                if best is None or avg < best:
+                    best = avg
+                    
+                    if n == 5:
+                        details = []
+                        for idx, r in enumerate(subset):
+                            t_str = "DNF" if r.value == float('inf') else f"{r.time:.3f}"
+                            if idx in dropped_indices:
+                                details.append(f"({t_str})")
+                            else:
+                                details.append(t_str)
+                        best_details = "\n".join(details)
+                    else:
+                        best_details = None
+                        
+        return best, best_details
+
     def get_session_mean(self):
         valid = [r.time for r in self.runs if r.penalty != "DNF"]
         if not valid:
@@ -262,8 +296,11 @@ class SettingsWindow(ctk.CTkToplevel):
         self.apply_btn = ctk.CTkButton(self, text="Apply Keybinds", command=self.apply_keybinds)
         self.apply_btn.grid(row=5, column=0, columnspan=3, pady=10)
 
+        self.update_btn = ctk.CTkButton(self, text="Check for Updates", command=lambda: parent.check_for_updates(manual=True), fg_color="blue", hover_color="darkblue")
+        self.update_btn.grid(row=6, column=0, columnspan=3, pady=(0, 10))
+
         self.debug_btn = ctk.CTkButton(self, text="Open Debug Console", command=self.open_debug, fg_color="gray", hover_color="darkgray")
-        self.debug_btn.grid(row=6, column=0, columnspan=3, pady=10)
+        self.debug_btn.grid(row=7, column=0, columnspan=3, pady=(0, 10))
 
     def capture_keybind(self, entry_widget):
         self.focus_set()
@@ -357,7 +394,7 @@ class FirewallTrackerApp(ctk.CTk):
         if getattr(sys, 'frozen', False):
             self.check_for_updates()
 
-    def check_for_updates(self):
+    def check_for_updates(self, manual=False):
         def update_thread():
             try:
                 req = urllib.request.Request(GITHUB_API_URL, headers={'User-Agent': 'Mozilla/5.0'})
@@ -373,9 +410,15 @@ class FirewallTrackerApp(ctk.CTk):
                                 break
                         
                         if exe_url:
-                            self.after(2000, lambda: self.prompt_update(latest_version, exe_url))
+                            self.after(2000 if not manual else 0, lambda: self.prompt_update(latest_version, exe_url))
+                        elif manual:
+                            self.after(0, lambda: __import__('tkinter.messagebox').messagebox.showinfo("Updater", "No .exe found in the latest release!"))
+                    elif manual:
+                        self.after(0, lambda: __import__('tkinter.messagebox').messagebox.showinfo("Updater", f"You are on the latest version! ({CURRENT_VERSION})"))
             except Exception as e:
                 self.after(0, self.log_debug, f"Update check failed: {e}")
+                if manual:
+                    self.after(0, lambda: __import__('tkinter.messagebox').messagebox.showerror("Updater Error", f"Failed to check for updates:\n{e}"))
                 
         threading.Thread(target=update_thread, daemon=True).start()
 
@@ -488,45 +531,76 @@ del "%~f0"
         self.stats_toggle_btn.pack(side="left", padx=5)
 
         # --- Stats Section ---
-        self.stats_frame = ctk.CTkFrame(self)
-        # We don't grid it initially, so it is hidden
+        self.stats_frame = ctk.CTkFrame(self, fg_color="transparent")
         
-        self.stats_frame.grid_columnconfigure((0, 1, 2), weight=1)
-        self.stats_frame.grid_rowconfigure((0, 1), weight=1)
+        self.stats_frame.grid_columnconfigure((0, 1), weight=1)
+        self.stats_frame.grid_rowconfigure((0, 1, 2), weight=1)
 
+        # --- Left Column ---
         # 1. Current Stats
         self.current_stats_frame = ctk.CTkFrame(self.stats_frame)
         self.current_stats_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-        ctk.CTkLabel(self.current_stats_frame, text="Current Stats", font=("Arial", 16, "bold")).pack(anchor="w", padx=5, pady=5)
-        self.lbl_curr_mo3 = ctk.CTkLabel(self.current_stats_frame, text="MO3: --.---", font=("Consolas", 14))
-        self.lbl_curr_mo3.pack(anchor="w", padx=10)
-        self.lbl_curr_ao5 = ctk.CTkLabel(self.current_stats_frame, text="AO5: --.---", font=("Consolas", 14))
+        ctk.CTkLabel(self.current_stats_frame, text="CURRENT STATS", font=("Arial", 10, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
+        
+        ctk.CTkLabel(self.current_stats_frame, text="AO5", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
+        self.lbl_curr_ao5 = ctk.CTkLabel(self.current_stats_frame, text="--.---", font=("Consolas", 22, "bold"))
         self.lbl_curr_ao5.pack(anchor="w", padx=10)
-        self.lbl_curr_ao12 = ctk.CTkLabel(self.current_stats_frame, text="AO12: --.---", font=("Consolas", 14))
+        
+        ctk.CTkLabel(self.current_stats_frame, text="AO12", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
+        self.lbl_curr_ao12 = ctk.CTkLabel(self.current_stats_frame, text="--.---", font=("Consolas", 22, "bold"))
         self.lbl_curr_ao12.pack(anchor="w", padx=10)
-        self.lbl_curr_ao100 = ctk.CTkLabel(self.current_stats_frame, text="AO100: --.---", font=("Consolas", 14))
-        self.lbl_curr_ao100.pack(anchor="w", padx=10)
+        
+        ctk.CTkLabel(self.current_stats_frame, text="AO100", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
+        self.lbl_curr_ao100 = ctk.CTkLabel(self.current_stats_frame, text="-", font=("Consolas", 18, "bold"))
+        self.lbl_curr_ao100.pack(anchor="w", padx=10, pady=(0, 10))
 
-        # 2. Firewall Count
-        self.count_frame = ctk.CTkFrame(self.stats_frame)
-        self.count_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
-        ctk.CTkLabel(self.count_frame, text="Firewall Count", font=("Arial", 16, "bold")).pack(anchor="w", padx=5, pady=5)
-        self.lbl_count = ctk.CTkLabel(self.count_frame, text="0", font=("Consolas", 32))
-        self.lbl_count.pack(expand=True)
-
-        # 3. Session Mean
-        self.mean_frame = ctk.CTkFrame(self.stats_frame)
-        self.mean_frame.grid(row=0, column=2, sticky="nsew", padx=5, pady=5)
-        ctk.CTkLabel(self.mean_frame, text="Session Mean", font=("Arial", 16, "bold")).pack(anchor="w", padx=5, pady=5)
-        self.lbl_mean = ctk.CTkLabel(self.mean_frame, text="--.---", font=("Consolas", 32))
-        self.lbl_mean.pack(expand=True)
-
-        # 4. Best Single
-        self.best_single_frame = ctk.CTkFrame(self.stats_frame)
+        # 2. Best Single
+        self.best_single_frame = ctk.CTkFrame(self.stats_frame, fg_color="#4B77FF")
         self.best_single_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
-        ctk.CTkLabel(self.best_single_frame, text="Best Single", font=("Arial", 16, "bold")).pack(anchor="w", padx=5, pady=5)
-        self.lbl_best_single = ctk.CTkLabel(self.best_single_frame, text="--.---", font=("Consolas", 32))
-        self.lbl_best_single.pack(expand=True)
+        ctk.CTkLabel(self.best_single_frame, text="BEST SINGLE", font=("Arial", 10, "bold"), text_color="white").pack(anchor="w", padx=10, pady=(10, 0))
+        self.lbl_best_single = ctk.CTkLabel(self.best_single_frame, text="--.---", font=("Consolas", 28, "bold"), text_color="white")
+        self.lbl_best_single.pack(anchor="w", padx=10, pady=(0, 10))
+
+        # 3. Best Stats
+        self.best_stats_frame = ctk.CTkFrame(self.stats_frame)
+        self.best_stats_frame.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
+        ctk.CTkLabel(self.best_stats_frame, text="BEST STATS", font=("Arial", 10, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
+        
+        ctk.CTkLabel(self.best_stats_frame, text="AO12", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
+        self.lbl_best_ao12 = ctk.CTkLabel(self.best_stats_frame, text="--.---", font=("Consolas", 22, "bold"))
+        self.lbl_best_ao12.pack(anchor="w", padx=10)
+        
+        ctk.CTkLabel(self.best_stats_frame, text="AO100", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
+        self.lbl_best_ao100 = ctk.CTkLabel(self.best_stats_frame, text="-", font=("Consolas", 18, "bold"))
+        self.lbl_best_ao100.pack(anchor="w", padx=10, pady=(0, 10))
+
+        # --- Right Column ---
+        # 4. Count and Mean (stacked)
+        self.right_top_frame = ctk.CTkFrame(self.stats_frame, fg_color="transparent")
+        self.right_top_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
+        self.right_top_frame.grid_columnconfigure(0, weight=1)
+        self.right_top_frame.grid_rowconfigure((0,1), weight=1)
+        
+        self.count_frame = ctk.CTkFrame(self.right_top_frame)
+        self.count_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 5))
+        ctk.CTkLabel(self.count_frame, text="SOLVE COUNT", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
+        self.lbl_count = ctk.CTkLabel(self.count_frame, text="0", font=("Consolas", 24, "bold"))
+        self.lbl_count.pack(anchor="w", padx=10, pady=(0, 10))
+
+        self.mean_frame = ctk.CTkFrame(self.right_top_frame)
+        self.mean_frame.grid(row=1, column=0, sticky="nsew", pady=(5, 0))
+        ctk.CTkLabel(self.mean_frame, text="SESSION MEAN", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
+        self.lbl_mean = ctk.CTkLabel(self.mean_frame, text="--.---", font=("Consolas", 24, "bold"))
+        self.lbl_mean.pack(anchor="w", padx=10, pady=(0, 10))
+
+        # 5. Best AO5 Details
+        self.best_ao5_frame = ctk.CTkFrame(self.stats_frame)
+        self.best_ao5_frame.grid(row=1, column=1, rowspan=2, sticky="nsew", padx=5, pady=5)
+        ctk.CTkLabel(self.best_ao5_frame, text="BEST AO5", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
+        self.lbl_best_ao5 = ctk.CTkLabel(self.best_ao5_frame, text="--.---", font=("Consolas", 28, "bold"), text_color="#4B77FF")
+        self.lbl_best_ao5.pack(anchor="w", padx=10, pady=(0, 5))
+        self.lbl_best_ao5_details = ctk.CTkLabel(self.best_ao5_frame, text="-\n-\n-\n-\n-", font=("Consolas", 12), text_color="gray", justify="left")
+        self.lbl_best_ao5_details.pack(anchor="w", padx=10, pady=(0, 10))
 
     def on_top_frame_resize(self, event):
         if event.widget == self.top_frame:
@@ -581,6 +655,10 @@ del "%~f0"
             self.update_stats_ui()
             save_runs(self.stats.runs)
 
+    def auto_dnf(self):
+        if self.timer_state in ["RUNNING", "PAUSED"]:
+            self.set_dnf()
+
     def on_roblox_log(self, time_str: str, level: str, message: str):
         msg_lower = message.lower().strip()
         self.log_debug(f"[{time_str}] {message}")
@@ -590,6 +668,13 @@ del "%~f0"
             self.after(0, self.clear_console)
             self.log_debug("-> TRIGGER: NEW SERVER (CLEARED)")
             return
+
+        # Auto DNF Conditions (during run)
+        if self.timer_state in ("RUNNING", "PAUSED"):
+            if "afterdeathmodifier" in msg_lower or "requesting admin command: kill with args" in msg_lower:
+                self.after(0, self.auto_dnf)
+                self.log_debug("-> TRIGGER: AUTO DNF")
+                return
 
         # Reset Conditions
         if "requesting admin command: kill with args" in msg_lower or \
@@ -702,20 +787,33 @@ del "%~f0"
             self.set_time_text("0.000")
             self.set_time_color("white")
         
-        mo3 = self.stats.calculate_mo(3)
         ao5 = self.stats.calculate_ao(5)
         ao12 = self.stats.calculate_ao(12)
         ao100 = self.stats.calculate_ao(100)
         
         self.ao5_label.configure(text=f"AO5: {format_time(ao5)}")
-        self.lbl_curr_mo3.configure(text=f"MO3: {format_time(mo3)}")
-        self.lbl_curr_ao5.configure(text=f"AO5: {format_time(ao5)}")
-        self.lbl_curr_ao12.configure(text=f"AO12: {format_time(ao12)}")
-        self.lbl_curr_ao100.configure(text=f"AO100: {format_time(ao100)}")
+        
+        self.lbl_curr_ao5.configure(text=format_time(ao5))
+        self.lbl_curr_ao12.configure(text=format_time(ao12))
+        self.lbl_curr_ao100.configure(text=format_time(ao100))
+        
+        best_ao5, best_ao5_details = self.stats.get_best_ao_details(5)
+        best_ao12, _ = self.stats.get_best_ao_details(12)
+        best_ao100, _ = self.stats.get_best_ao_details(100)
+        
+        self.lbl_best_single.configure(text=format_time(self.stats.get_best_single()))
+        
+        self.lbl_best_ao12.configure(text=format_time(best_ao12))
+        self.lbl_best_ao100.configure(text=format_time(best_ao100))
         
         self.lbl_count.configure(text=str(len(self.stats.runs)))
         self.lbl_mean.configure(text=format_time(self.stats.get_session_mean()))
-        self.lbl_best_single.configure(text=format_time(self.stats.get_best_single()))
+        
+        self.lbl_best_ao5.configure(text=format_time(best_ao5))
+        if best_ao5_details:
+            self.lbl_best_ao5_details.configure(text=best_ao5_details)
+        else:
+            self.lbl_best_ao5_details.configure(text="-\n-\n-\n-\n-")
 
     def destroy(self):
         app_settings.setdefault("geometries", {})["main"] = self.geometry()
