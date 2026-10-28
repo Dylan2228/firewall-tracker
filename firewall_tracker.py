@@ -121,7 +121,7 @@ def save_runs(runs: List[Run]):
     data = [{"time": r.time, "penalty": r.penalty} for r in runs]
     try:
         with open(STATS_FILE, "w") as f:
-            json.dump(data, f)
+            json.dump(data, f, indent=4)
     except Exception:
         pass
 
@@ -162,7 +162,7 @@ class StatsManager:
                 if n == 5:
                     details = []
                     for idx, r in enumerate(subset):
-                        t_str = f"{r.time:.3f}"
+                        t_str = format_time(r.time)
                         if idx in dropped_indices:
                             details.append(f"({t_str})")
                         else:
@@ -200,15 +200,76 @@ class StatsManager:
 
 def format_time(t) -> str:
     if t is None:
-        return "--.---"
+        return "-:--.---"
     if t == float('inf'):
         return "DNF"
-    if t < 60:
-        return f"{t:.3f}"
-    else:
-        minutes = int(t // 60)
-        seconds = t % 60
-        return f"{minutes}:{seconds:06.3f}"
+    minutes = int(t // 60)
+    seconds = t % 60
+    return f"{minutes}:{seconds:06.3f}"
+
+def export_stats(parent=None):
+    from tkinter import filedialog, messagebox
+    file_path = filedialog.asksaveasfilename(
+        parent=parent,
+        defaultextension=".json",
+        filetypes=[("JSON Files", "*.json")],
+        initialfile="firewall_stats_export.json"
+    )
+    if not file_path:
+        return
+    try:
+        runs = load_runs()
+        data = [{"time": r.time, "penalty": r.penalty} for r in runs]
+        with open(file_path, "w") as f:
+            json.dump(data, f, indent=4)
+        messagebox.showinfo("Export Success", f"Successfully exported {len(runs)} runs to:\n{file_path}", parent=parent)
+    except Exception as e:
+        messagebox.showerror("Export Failed", f"Failed to export stats:\n{e}", parent=parent)
+
+def import_stats(parent=None, callback=None):
+    from tkinter import filedialog, messagebox
+    file_path = filedialog.askopenfilename(
+        parent=parent,
+        filetypes=[("JSON Files", "*.json")]
+    )
+    if not file_path:
+        return
+    try:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise ValueError("Stats file must contain a list of run objects.")
+        
+        imported_runs = []
+        for item in data:
+            if isinstance(item, dict) and "time" in item:
+                r = Run(float(item["time"]))
+                r.penalty = item.get("penalty")
+                imported_runs.append(r)
+                
+        if not imported_runs:
+            messagebox.showwarning("Import Warning", "No valid runs found in selected file.", parent=parent)
+            return
+
+        choice = messagebox.askyesno(
+            "Import Mode",
+            f"Found {len(imported_runs)} valid runs.\n\n"
+            f"Click [Yes] to MERGE (add to existing runs).\n"
+            f"Click [No] to REPLACE (overwrite existing runs).",
+            parent=parent
+        )
+        current = load_runs()
+        if choice:  # Merge
+            current.extend(imported_runs)
+        else:       # Replace
+            current = imported_runs
+            
+        save_runs(current)
+        if callback:
+            callback(current)
+        messagebox.showinfo("Import Success", f"Successfully imported {len(imported_runs)} runs!", parent=parent)
+    except Exception as e:
+        messagebox.showerror("Import Error", f"Failed to import stats:\n{e}", parent=parent)
 
 
 class TimerWindow(ctk.CTkToplevel):
@@ -220,7 +281,7 @@ class TimerWindow(ctk.CTkToplevel):
         
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        self.time_label = ctk.CTkLabel(self, text="0.000", font=(MONO_FONT, 120, "bold"))
+        self.time_label = ctk.CTkLabel(self, text="0:00.000", font=(MONO_FONT, 120, "bold"))
         self.time_label.pack(expand=True, fill="both")
         self.attributes("-topmost", True)
         self.bind("<Configure>", self.on_resize)
@@ -267,13 +328,183 @@ class DebugWindow(ctk.CTkToplevel):
         self.textbox.configure(state="disabled")
 
 
+class TimesHistoryWindow(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("Recorded Times History")
+        saved = app_settings.get("geometries", {}).get("history")
+        self.geometry(saved if saved else "520x600")
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        self.reverse_sort = True  # Newest first by default
+        
+        # Header Toolbar
+        self.top_toolbar = ctk.CTkFrame(self, fg_color="transparent")
+        self.top_toolbar.pack(fill="x", padx=15, pady=(15, 5))
+        
+        self.count_label = ctk.CTkLabel(self.top_toolbar, text="", font=("Arial", 16, "bold"))
+        self.count_label.pack(side="left")
+        
+        self.btn_sort = ctk.CTkButton(
+            self.top_toolbar, 
+            text="▼ Newest First", 
+            width=110, 
+            font=("Arial", 12),
+            command=self.toggle_sort
+        )
+        self.btn_sort.pack(side="right", padx=5)
+
+        self.btn_export = ctk.CTkButton(
+            self.top_toolbar, 
+            text="Export", 
+            width=70, 
+            fg_color="teal", 
+            hover_color="darkcyan",
+            font=("Arial", 12),
+            command=lambda: export_stats(self)
+        )
+        self.btn_export.pack(side="right", padx=5)
+
+        self.btn_import = ctk.CTkButton(
+            self.top_toolbar, 
+            text="Import", 
+            width=70, 
+            fg_color="royalblue", 
+            hover_color="navy",
+            font=("Arial", 12),
+            command=self.handle_import
+        )
+        self.btn_import.pack(side="right", padx=5)
+
+        # Scrollable list of runs
+        self.scroll_frame = ctk.CTkScrollableFrame(self)
+        self.scroll_frame.pack(expand=True, fill="both", padx=15, pady=10)
+
+        self.render_times()
+
+    def toggle_sort(self):
+        self.reverse_sort = not self.reverse_sort
+        self.btn_sort.configure(text="▼ Newest First" if self.reverse_sort else "▲ Oldest First")
+        self.render_times()
+
+    def handle_import(self):
+        def on_import(runs):
+            self.parent.stats.runs = runs
+            self.parent.update_stats_ui()
+            self.render_times()
+        import_stats(self, on_import)
+
+    def render_times(self):
+        for widget in self.scroll_frame.winfo_children():
+            widget.destroy()
+
+        runs = self.parent.stats.runs
+        self.count_label.configure(text=f"Total Runs: {len(runs)}")
+
+        if not runs:
+            ctk.CTkLabel(
+                self.scroll_frame, 
+                text="No runs recorded yet!", 
+                font=("Arial", 14), 
+                text_color="gray"
+            ).pack(pady=40)
+            return
+
+        indexed_runs = list(enumerate(runs, start=1))
+        if self.reverse_sort:
+            indexed_runs.reverse()
+
+        for idx, run in indexed_runs:
+            row_frame = ctk.CTkFrame(self.scroll_frame, fg_color=("gray85", "gray20"), corner_radius=6)
+            row_frame.pack(fill="x", pady=3, padx=2)
+            row_frame.grid_columnconfigure(1, weight=1)
+
+            ctk.CTkLabel(
+                row_frame, 
+                text=f"#{idx}", 
+                font=("Arial", 12, "bold"), 
+                text_color="gray", 
+                width=50, 
+                anchor="w"
+            ).grid(row=0, column=0, padx=(10, 5), pady=8)
+
+            time_str = format_time(run.time)
+            color = "red" if run.penalty == "DNF" else ("#2ECC71" if run.penalty is None else "white")
+            ctk.CTkLabel(
+                row_frame, 
+                text=time_str, 
+                font=(MONO_FONT, 15, "bold"), 
+                text_color=color, 
+                anchor="w"
+            ).grid(row=0, column=1, padx=5, pady=8, sticky="w")
+
+            status_text = "DNF" if run.penalty == "DNF" else "OK"
+            status_color = "red" if run.penalty == "DNF" else "green"
+            ctk.CTkLabel(
+                row_frame, 
+                text=status_text, 
+                font=("Arial", 11, "bold"), 
+                text_color=status_color, 
+                width=45
+            ).grid(row=0, column=2, padx=5, pady=8)
+
+            btn_dots = ctk.CTkButton(
+                row_frame, 
+                text="•••", 
+                width=35, 
+                height=26, 
+                font=("Arial", 12, "bold"),
+                fg_color=("gray75", "gray30"),
+                hover_color=("gray65", "gray40"),
+                command=lambda r_idx=idx-1, f=row_frame: self.show_context_menu(r_idx, f)
+            )
+            btn_dots.grid(row=0, column=3, padx=(5, 10), pady=8)
+
+    def show_context_menu(self, run_index: int, widget):
+        import tkinter as tk
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="✔ Set OK", command=lambda: self.set_run_status(run_index, None))
+        menu.add_command(label="🚫 Set DNF", command=lambda: self.set_run_status(run_index, "DNF"))
+        menu.add_separator()
+        menu.add_command(label="🗑️ Delete", command=lambda: self.delete_run(run_index))
+        
+        try:
+            x = widget.winfo_rootx() + widget.winfo_width() - 80
+            y = widget.winfo_rooty() + widget.winfo_height()
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def set_run_status(self, run_index: int, penalty):
+        if 0 <= run_index < len(self.parent.stats.runs):
+            self.parent.stats.runs[run_index].penalty = penalty
+            save_runs(self.parent.stats.runs)
+            self.parent.update_stats_ui()
+            self.render_times()
+
+    def delete_run(self, run_index: int):
+        import tkinter.messagebox as mb
+        if 0 <= run_index < len(self.parent.stats.runs):
+            if mb.askyesno("Confirm Delete", f"Delete run #{run_index + 1}?", parent=self):
+                self.parent.stats.runs.pop(run_index)
+                save_runs(self.parent.stats.runs)
+                self.parent.update_stats_ui()
+                self.render_times()
+
+    def on_closing(self):
+        app_settings.setdefault("geometries", {})["history"] = self.geometry()
+        save_settings(app_settings)
+        self.destroy()
+
+
 class SettingsWindow(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
         self.title("Settings")
         saved = app_settings.get("geometries", {}).get("settings")
-        self.geometry(saved if saved else "350x300")
+        self.geometry(saved if saved else "360x380")
         
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -291,19 +522,19 @@ class SettingsWindow(ctk.CTkToplevel):
         # Keybinds
         ctk.CTkLabel(self, text="OK Keybind:").grid(row=2, column=0, padx=10, pady=5, sticky="e")
         self.kb_ok = ctk.CTkEntry(self, width=120)
-        self.kb_ok.insert(0, app_settings.get("keybind_ok", "<Control-1>"))
+        self.kb_ok.insert(0, app_settings.get("keybind_ok", DEFAULT_KEYBINDS["keybind_ok"]))
         self.kb_ok.grid(row=2, column=1, padx=10, pady=5, sticky="w")
         ctk.CTkButton(self, text="Set", width=40, command=lambda: self.capture_keybind(self.kb_ok)).grid(row=2, column=2, padx=5, sticky="w")
 
         ctk.CTkLabel(self, text="DNF Keybind:").grid(row=3, column=0, padx=10, pady=5, sticky="e")
         self.kb_dnf = ctk.CTkEntry(self, width=120)
-        self.kb_dnf.insert(0, app_settings.get("keybind_dnf", "<Control-2>"))
+        self.kb_dnf.insert(0, app_settings.get("keybind_dnf", DEFAULT_KEYBINDS["keybind_dnf"]))
         self.kb_dnf.grid(row=3, column=1, padx=10, pady=5, sticky="w")
         ctk.CTkButton(self, text="Set", width=40, command=lambda: self.capture_keybind(self.kb_dnf)).grid(row=3, column=2, padx=5, sticky="w")
 
         ctk.CTkLabel(self, text="DEL Keybind:").grid(row=4, column=0, padx=10, pady=5, sticky="e")
         self.kb_delete = ctk.CTkEntry(self, width=120)
-        self.kb_delete.insert(0, app_settings.get("keybind_delete", "<Control-3>"))
+        self.kb_delete.insert(0, app_settings.get("keybind_delete", DEFAULT_KEYBINDS["keybind_delete"]))
         self.kb_delete.grid(row=4, column=1, padx=10, pady=5, sticky="w")
         ctk.CTkButton(self, text="Set", width=40, command=lambda: self.capture_keybind(self.kb_delete)).grid(row=4, column=2, padx=5, sticky="w")
 
@@ -315,6 +546,24 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self.debug_btn = ctk.CTkButton(self, text="Open Debug Console", command=self.open_debug, fg_color="gray", hover_color="darkgray")
         self.debug_btn.grid(row=7, column=0, columnspan=3, pady=(0, 10))
+
+        # Data Management Frame
+        self.data_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.data_frame.grid(row=8, column=0, columnspan=3, pady=(0, 10))
+        
+        self.export_btn = ctk.CTkButton(self.data_frame, text="Export Stats...", width=110, command=lambda: export_stats(self), fg_color="teal", hover_color="darkcyan")
+        self.export_btn.pack(side="left", padx=5)
+        
+        self.import_btn = ctk.CTkButton(self.data_frame, text="Import Stats...", width=110, command=self.handle_import, fg_color="royalblue", hover_color="navy")
+        self.import_btn.pack(side="left", padx=5)
+
+    def handle_import(self):
+        def on_import(runs):
+            self.parent.stats.runs = runs
+            self.parent.update_stats_ui()
+            if self.parent.history_window and self.parent.history_window.winfo_exists():
+                self.parent.history_window.render_times()
+        import_stats(self, on_import)
 
     def capture_keybind(self, entry_widget):
         self.focus_set()
@@ -401,6 +650,7 @@ class FirewallTrackerApp(ctk.CTk):
         self.debug_logs = []
         self.debug_window = None
         self.timer_window = None
+        self.history_window = None
 
         self.timer_state = "STOPPED"
         self.start_time = 0.0
@@ -548,10 +798,10 @@ del "%~f0"
         self.popout_btn = ctk.CTkButton(self.top_frame, text="↗️ Popout", width=36, height=36, font=("Arial", 14, "bold"), command=self.open_timer_window)
         self.popout_btn.place(relx=0.0, rely=0.0, anchor="nw")
 
-        self.time_label = ctk.CTkLabel(self.top_frame, text="0.000", font=(MONO_FONT, 80, "bold"))
+        self.time_label = ctk.CTkLabel(self.top_frame, text="0:00.000", font=(MONO_FONT, 80, "bold"))
         self.time_label.pack(expand=True, pady=(20, 0))
 
-        self.ao5_label = ctk.CTkLabel(self.top_frame, text="AO5: --.---", font=(MONO_FONT, 24, "underline"))
+        self.ao5_label = ctk.CTkLabel(self.top_frame, text="AO5: -:--.---", font=(MONO_FONT, 24, "underline"))
         self.ao5_label.pack()
 
         # --- Actions Row ---
@@ -570,6 +820,9 @@ del "%~f0"
         self.stats_toggle_btn = ctk.CTkButton(self.action_frame, text="Stats ▼", width=120, height=35, font=("Arial", 16, "bold"), fg_color=("gray75", "gray25"), hover_color=("gray70", "gray30"), command=self.toggle_stats)
         self.stats_toggle_btn.pack(side="left", padx=5)
 
+        self.btn_history = ctk.CTkButton(self.action_frame, text="📋 Times", width=90, height=35, font=("Arial", 14, "bold"), fg_color=("gray75", "gray25"), hover_color=("gray70", "gray30"), command=self.open_times_history)
+        self.btn_history.pack(side="left", padx=5)
+
         # --- Stats Section ---
         self.stats_frame = ctk.CTkFrame(self, fg_color="transparent")
         
@@ -583,11 +836,11 @@ del "%~f0"
         ctk.CTkLabel(self.current_stats_frame, text="CURRENT STATS", font=("Arial", 10, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
         
         ctk.CTkLabel(self.current_stats_frame, text="AO5", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
-        self.lbl_curr_ao5 = ctk.CTkLabel(self.current_stats_frame, text="--.---", font=(MONO_FONT, 22, "bold"))
+        self.lbl_curr_ao5 = ctk.CTkLabel(self.current_stats_frame, text="-:--.---", font=(MONO_FONT, 22, "bold"))
         self.lbl_curr_ao5.pack(anchor="w", padx=10)
         
         ctk.CTkLabel(self.current_stats_frame, text="AO12", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
-        self.lbl_curr_ao12 = ctk.CTkLabel(self.current_stats_frame, text="--.---", font=(MONO_FONT, 22, "bold"))
+        self.lbl_curr_ao12 = ctk.CTkLabel(self.current_stats_frame, text="-:--.---", font=(MONO_FONT, 22, "bold"))
         self.lbl_curr_ao12.pack(anchor="w", padx=10)
         
         ctk.CTkLabel(self.current_stats_frame, text="AO100", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
@@ -598,7 +851,7 @@ del "%~f0"
         self.best_single_frame = ctk.CTkFrame(self.stats_frame, fg_color="#4B77FF")
         self.best_single_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         ctk.CTkLabel(self.best_single_frame, text="BEST SINGLE", font=("Arial", 10, "bold"), text_color="white").pack(anchor="w", padx=10, pady=(10, 0))
-        self.lbl_best_single = ctk.CTkLabel(self.best_single_frame, text="--.---", font=(MONO_FONT, 28, "bold"), text_color="white")
+        self.lbl_best_single = ctk.CTkLabel(self.best_single_frame, text="-:--.---", font=(MONO_FONT, 28, "bold"), text_color="white")
         self.lbl_best_single.pack(anchor="w", padx=10, pady=(0, 10))
 
         # 3. Best Stats
@@ -607,7 +860,7 @@ del "%~f0"
         ctk.CTkLabel(self.best_stats_frame, text="BEST STATS", font=("Arial", 10, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
         
         ctk.CTkLabel(self.best_stats_frame, text="AO12", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
-        self.lbl_best_ao12 = ctk.CTkLabel(self.best_stats_frame, text="--.---", font=(MONO_FONT, 22, "bold"))
+        self.lbl_best_ao12 = ctk.CTkLabel(self.best_stats_frame, text="-:--.---", font=(MONO_FONT, 22, "bold"))
         self.lbl_best_ao12.pack(anchor="w", padx=10)
         
         ctk.CTkLabel(self.best_stats_frame, text="AO100", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
@@ -630,14 +883,14 @@ del "%~f0"
         self.mean_frame = ctk.CTkFrame(self.right_top_frame)
         self.mean_frame.grid(row=1, column=0, sticky="nsew", pady=(5, 0))
         ctk.CTkLabel(self.mean_frame, text="SESSION MEAN", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
-        self.lbl_mean = ctk.CTkLabel(self.mean_frame, text="--.---", font=(MONO_FONT, 24, "bold"))
+        self.lbl_mean = ctk.CTkLabel(self.mean_frame, text="-:--.---", font=(MONO_FONT, 24, "bold"))
         self.lbl_mean.pack(anchor="w", padx=10, pady=(0, 10))
 
         # 5. Best AO5 Details
         self.best_ao5_frame = ctk.CTkFrame(self.stats_frame)
         self.best_ao5_frame.grid(row=1, column=1, rowspan=2, sticky="nsew", padx=5, pady=5)
         ctk.CTkLabel(self.best_ao5_frame, text="BEST AO5", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
-        self.lbl_best_ao5 = ctk.CTkLabel(self.best_ao5_frame, text="--.---", font=(MONO_FONT, 28, "bold"), text_color="#4B77FF")
+        self.lbl_best_ao5 = ctk.CTkLabel(self.best_ao5_frame, text="-:--.---", font=(MONO_FONT, 28, "bold"), text_color="#4B77FF")
         self.lbl_best_ao5.pack(anchor="w", padx=10, pady=(0, 5))
         self.lbl_best_ao5_details = ctk.CTkLabel(self.best_ao5_frame, text="-\n-\n-\n-\n-", font=(MONO_FONT, 12), text_color="gray", justify="left")
         self.lbl_best_ao5_details.pack(anchor="w", padx=10, pady=(0, 10))
@@ -667,6 +920,12 @@ del "%~f0"
     def open_settings(self):
         SettingsWindow(self)
 
+    def open_times_history(self):
+        if self.history_window is None or not self.history_window.winfo_exists():
+            self.history_window = TimesHistoryWindow(self)
+        else:
+            self.history_window.focus()
+
     def setup_streamer(self):
         self.streamer = RobloxConsoleStreamer(self.on_roblox_log)
         self.streamer.start()
@@ -678,6 +937,8 @@ del "%~f0"
             self.stats.runs[-1].penalty = None
             self.update_stats_ui()
             save_runs(self.stats.runs)
+            if self.history_window and self.history_window.winfo_exists():
+                self.history_window.render_times()
 
     def set_dnf(self, event=None):
         if self.timer_state in ["RUNNING", "PAUSED"]:
@@ -686,6 +947,8 @@ del "%~f0"
             self.stats.runs[-1].penalty = "DNF"
             self.update_stats_ui()
             save_runs(self.stats.runs)
+            if self.history_window and self.history_window.winfo_exists():
+                self.history_window.render_times()
 
     def delete_last(self, event=None):
         if self.timer_state in ["RUNNING", "PAUSED"]:
@@ -694,6 +957,8 @@ del "%~f0"
             self.stats.runs.pop()
             self.update_stats_ui()
             save_runs(self.stats.runs)
+            if self.history_window and self.history_window.winfo_exists():
+                self.history_window.render_times()
 
     def auto_dnf(self):
         if self.timer_state in ["RUNNING", "PAUSED"]:
@@ -773,7 +1038,7 @@ del "%~f0"
         self.timer_state = "STOPPED"
         self.start_time = 0.0
         self.elapsed_time = 0.0
-        self.set_time_text("0.000")
+        self.set_time_text("0:00.000")
         self.set_time_color("white")
 
     def start_timer(self):
@@ -804,6 +1069,8 @@ del "%~f0"
             final_time = self.elapsed_time
             self.stats.add_time(final_time)
             self.update_stats_ui()
+            if self.history_window and self.history_window.winfo_exists():
+                self.history_window.render_times()
             self.set_time_color("green")
 
     def update_timer_loop(self):
@@ -824,7 +1091,7 @@ del "%~f0"
             else:
                 self.set_time_color("green")
         elif not self.stats.runs and self.timer_state == "STOPPED":
-            self.set_time_text("0.000")
+            self.set_time_text("0:00.000")
             self.set_time_color("white")
         
         ao5 = self.stats.calculate_ao(5)
@@ -861,6 +1128,9 @@ del "%~f0"
             app_settings["geometries"]["timer"] = self.timer_window.geometry()
         if self.debug_window and self.debug_window.winfo_exists():
             app_settings["geometries"]["debug"] = self.debug_window.geometry()
+        if self.history_window and self.history_window.winfo_exists():
+            app_settings["geometries"]["history"] = self.history_window.geometry()
+            self.history_window.destroy()
         save_settings(app_settings)
         self.streamer.stop()
         super().destroy()
