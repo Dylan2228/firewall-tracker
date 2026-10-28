@@ -93,9 +93,10 @@ import math
 from typing import List
 
 class Run:
-    def __init__(self, t: float):
+    def __init__(self, t: float, date: str = None):
         self.time = t
         self.penalty = None  # None or "DNF"
+        self.date = date
 
     @property
     def value(self):
@@ -110,7 +111,7 @@ def load_runs() -> List[Run]:
             with open(STATS_FILE, "r") as f:
                 data = json.load(f)
                 for item in data:
-                    r = Run(item["time"])
+                    r = Run(item["time"], item.get("date"))
                     r.penalty = item.get("penalty")
                     runs.append(r)
         except Exception:
@@ -118,7 +119,12 @@ def load_runs() -> List[Run]:
     return runs
 
 def save_runs(runs: List[Run]):
-    data = [{"time": r.time, "penalty": r.penalty} for r in runs]
+    data = []
+    for r in runs:
+        entry = {"time": r.time, "penalty": r.penalty}
+        if r.date:
+            entry["date"] = r.date
+        data.append(entry)
     try:
         with open(STATS_FILE, "w") as f:
             json.dump(data, f, indent=4)
@@ -129,8 +135,11 @@ class StatsManager:
     def __init__(self):
         self.runs: List[Run] = load_runs()
 
-    def add_time(self, t: float):
-        self.runs.append(Run(t))
+    def add_time(self, t: float, date_str: str = None):
+        if not date_str:
+            import datetime
+            date_str = datetime.datetime.now().strftime("%m/%d %H:%M")
+        self.runs.append(Run(t, date_str))
         save_runs(self.runs)
 
     def get_best_single(self):
@@ -243,7 +252,7 @@ def import_stats(parent=None, callback=None):
         imported_runs = []
         for item in data:
             if isinstance(item, dict) and "time" in item:
-                r = Run(float(item["time"]))
+                r = Run(float(item["time"]), item.get("date"))
                 r.penalty = item.get("penalty")
                 imported_runs.append(r)
                 
@@ -334,13 +343,14 @@ class TimesHistoryWindow(ctk.CTkToplevel):
         self.parent = parent
         self.title("Recorded Times History")
         saved = app_settings.get("geometries", {}).get("history")
-        self.geometry(saved if saved else "520x620")
+        self.geometry(saved if saved else "560x620")
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        self.reverse_sort = True  # Newest first by default
+        self.sort_mode = "Newest First"
         self.loaded_count = 20
         self.indexed_runs = []
         self.load_more_frame = None
+        self.is_loading = False
         
         # Header Toolbar
         self.top_toolbar = ctk.CTkFrame(self, fg_color="transparent")
@@ -349,14 +359,14 @@ class TimesHistoryWindow(ctk.CTkToplevel):
         self.count_label = ctk.CTkLabel(self.top_toolbar, text="", font=("Arial", 16, "bold"))
         self.count_label.pack(side="left")
         
-        self.btn_sort = ctk.CTkButton(
+        self.sort_menu = ctk.CTkOptionMenu(
             self.top_toolbar, 
-            text="▼ Newest First", 
-            width=110, 
+            values=["Newest First", "Oldest First", "Fastest First", "Slowest First"], 
+            width=135, 
             font=("Arial", 12),
-            command=self.toggle_sort
+            command=self.on_sort_change
         )
-        self.btn_sort.pack(side="right", padx=5)
+        self.sort_menu.pack(side="right", padx=5)
 
         self.btn_export = ctk.CTkButton(
             self.top_toolbar, 
@@ -415,9 +425,22 @@ class TimesHistoryWindow(ctk.CTkToplevel):
 
         self.render_times()
 
-    def toggle_sort(self):
-        self.reverse_sort = not self.reverse_sort
-        self.btn_sort.configure(text="▼ Newest First" if self.reverse_sort else "▲ Oldest First")
+        # Auto infinite-scroll listener loop
+        self.after(300, self.check_scroll_loop)
+
+    def check_scroll_loop(self):
+        if not self.winfo_exists():
+            return
+        try:
+            _, bottom = self.scroll_frame._parent_canvas.yview()
+            if bottom >= 0.82 and self.loaded_count < len(self.indexed_runs) and not self.is_loading:
+                self.load_more()
+        except Exception:
+            pass
+        self.after(200, self.check_scroll_loop)
+
+    def on_sort_change(self, choice):
+        self.sort_mode = choice
         self.render_times(reset_page=True)
 
     def handle_import(self):
@@ -454,32 +477,49 @@ class TimesHistoryWindow(ctk.CTkToplevel):
             ).pack(pady=40)
             return
 
-        self.indexed_runs = list(enumerate(runs, start=1))
-        if self.reverse_sort:
-            self.indexed_runs.reverse()
+        indexed_runs = list(enumerate(runs, start=1))
 
+        if self.sort_mode == "Newest First":
+            indexed_runs.reverse()
+        elif self.sort_mode == "Oldest First":
+            pass
+        elif self.sort_mode == "Fastest First":
+            def fastest_key(item):
+                run = item[1]
+                return (1 if run.penalty == "DNF" else 0, run.time)
+            indexed_runs.sort(key=fastest_key)
+        elif self.sort_mode == "Slowest First":
+            def slowest_key(item):
+                run = item[1]
+                return (1 if run.penalty == "DNF" else 0, -run.time)
+            indexed_runs.sort(key=slowest_key)
+
+        self.indexed_runs = indexed_runs
         self.load_batch(start_idx=0)
 
     def load_batch(self, start_idx: int):
+        self.is_loading = True
         if self.load_more_frame and self.load_more_frame.winfo_exists():
             self.load_more_frame.destroy()
 
         batch = self.indexed_runs[start_idx : self.loaded_count]
 
-        for idx, run in batch:
+        for orig_idx, run in batch:
             row_frame = ctk.CTkFrame(self.scroll_frame, fg_color=("gray85", "gray20"), corner_radius=6)
             row_frame.pack(fill="x", pady=3, padx=2)
             row_frame.grid_columnconfigure(1, weight=1)
 
+            # 1. Index #
             ctk.CTkLabel(
                 row_frame, 
-                text=f"#{idx}", 
+                text=f"#{orig_idx}", 
                 font=("Arial", 12, "bold"), 
                 text_color="gray", 
-                width=50, 
+                width=45, 
                 anchor="w"
             ).grid(row=0, column=0, padx=(10, 5), pady=8)
 
+            # 2. Time
             time_str = format_time(run.time)
             color = "red" if run.penalty == "DNF" else ("#2ECC71" if run.penalty is None else "white")
             ctk.CTkLabel(
@@ -490,6 +530,18 @@ class TimesHistoryWindow(ctk.CTkToplevel):
                 anchor="w"
             ).grid(row=0, column=1, padx=5, pady=8, sticky="w")
 
+            # 3. Date & Time
+            date_str = run.date if run.date else "-"
+            ctk.CTkLabel(
+                row_frame, 
+                text=date_str, 
+                font=("Arial", 11), 
+                text_color="gray", 
+                width=85, 
+                anchor="e"
+            ).grid(row=0, column=2, padx=5, pady=8)
+
+            # 4. Status
             status_text = "DNF" if run.penalty == "DNF" else "OK"
             status_color = "red" if run.penalty == "DNF" else "green"
             ctk.CTkLabel(
@@ -497,9 +549,10 @@ class TimesHistoryWindow(ctk.CTkToplevel):
                 text=status_text, 
                 font=("Arial", 11, "bold"), 
                 text_color=status_color, 
-                width=45
-            ).grid(row=0, column=2, padx=5, pady=8)
+                width=40
+            ).grid(row=0, column=3, padx=5, pady=8)
 
+            # 5. Action Dots
             btn_dots = ctk.CTkButton(
                 row_frame, 
                 text="•••", 
@@ -508,9 +561,9 @@ class TimesHistoryWindow(ctk.CTkToplevel):
                 font=("Arial", 12, "bold"),
                 fg_color=("gray75", "gray30"),
                 hover_color=("gray65", "gray40"),
-                command=lambda r_idx=idx-1, f=row_frame: self.show_context_menu(r_idx, f)
+                command=lambda r_idx=orig_idx-1, f=row_frame: self.show_context_menu(r_idx, f)
             )
-            btn_dots.grid(row=0, column=3, padx=(5, 10), pady=8)
+            btn_dots.grid(row=0, column=4, padx=(5, 10), pady=8)
 
         # Show load more footer if there are remaining runs
         if self.loaded_count < len(self.indexed_runs):
@@ -522,7 +575,7 @@ class TimesHistoryWindow(ctk.CTkToplevel):
 
             lbl_info = ctk.CTkLabel(
                 self.load_more_frame, 
-                text=f"Showing {min(self.loaded_count, len(self.indexed_runs))} of {len(self.indexed_runs)} runs", 
+                text=f"Showing {min(self.loaded_count, len(self.indexed_runs))} of {len(self.indexed_runs)} runs (Scroll down for more)", 
                 font=("Arial", 11), 
                 text_color="gray"
             )
@@ -552,6 +605,8 @@ class TimesHistoryWindow(ctk.CTkToplevel):
                 command=self.load_all
             )
             btn_all.pack(side="left", padx=5)
+
+        self.is_loading = False
 
     def load_more(self):
         prev = self.loaded_count
