@@ -10,7 +10,7 @@ from tkinter import messagebox
 from typing import List
 from roblox_console import RobloxConsoleStreamer
 
-CURRENT_VERSION = "v1.1.1"
+CURRENT_VERSION = "v1.2.0"
 GITHUB_API_URL = "https://api.github.com/repos/Dylan2228/firewall-tracker/releases/latest"
 
 # --- App Data Paths ---
