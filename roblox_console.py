@@ -32,6 +32,7 @@ Callback signature
 import glob
 import os
 import re
+import sys
 import threading
 import time
 from typing import Callable, Optional
@@ -70,10 +71,16 @@ def _parse_level(tag: str, severity: Optional[str]) -> str:
 # Log file locator
 # ---------------------------------------------------------------------------
 def _latest_log() -> Optional[str]:
-    log_dir = os.path.expandvars(r"%LOCALAPPDATA%\Roblox\logs")
+    if sys.platform == "darwin":
+        log_dir = os.path.expanduser("~/Library/Logs/Roblox")
+    else:
+        log_dir = os.path.expandvars(r"%LOCALAPPDATA%\Roblox\logs")
+        
     if not os.path.isdir(log_dir):
         return None
     files = glob.glob(os.path.join(log_dir, "*Player*.log"))
+    if not files:
+        files = glob.glob(os.path.join(log_dir, "*.log"))
     if not files:
         return None
     files.sort(key=os.path.getmtime, reverse=True)

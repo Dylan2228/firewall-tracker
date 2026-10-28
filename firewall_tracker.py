@@ -13,25 +13,41 @@ CURRENT_VERSION = "v1.1.1"
 GITHUB_API_URL = "https://api.github.com/repos/Dylan2228/firewall-tracker/releases/latest"
 
 # --- App Data Paths ---
-APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "FirewallTracker")
+if sys.platform == "darwin":
+    APP_DIR = os.path.expanduser("~/Library/Application Support/FirewallTracker")
+else:
+    APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "FirewallTracker")
 os.makedirs(APP_DIR, exist_ok=True)
 
 SETTINGS_FILE = os.path.join(APP_DIR, "firewall_settings.json")
 
+# --- Monospace Font Helper ---
+MONO_FONT = "Menlo" if sys.platform == "darwin" else "Consolas"
+
+# --- Default Keybinds ---
+DEFAULT_KEYBINDS = {
+    "keybind_ok": "<Command-1>" if sys.platform == "darwin" else "<Control-1>",
+    "keybind_dnf": "<Command-2>" if sys.platform == "darwin" else "<Control-2>",
+    "keybind_delete": "<Command-3>" if sys.platform == "darwin" else "<Control-3>",
+}
+
 # --- Load Settings ---
 def load_settings():
+    defaults = {
+        "theme": "Default (Blue)",
+        "keybind_ok": DEFAULT_KEYBINDS["keybind_ok"],
+        "keybind_dnf": DEFAULT_KEYBINDS["keybind_dnf"],
+        "keybind_delete": DEFAULT_KEYBINDS["keybind_delete"]
+    }
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                defaults.update(data)
+                return defaults
         except:
             pass
-    return {
-        "theme": "Default (Blue)",
-        "keybind_ok": "<Control-1>",
-        "keybind_dnf": "<Control-2>",
-        "keybind_delete": "<Control-3>"
-    }
+    return defaults
 
 def save_settings(settings):
     with open(SETTINGS_FILE, "w") as f:
@@ -204,7 +220,7 @@ class TimerWindow(ctk.CTkToplevel):
         
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        self.time_label = ctk.CTkLabel(self, text="0.000", font=("Consolas", 120, "bold"))
+        self.time_label = ctk.CTkLabel(self, text="0.000", font=(MONO_FONT, 120, "bold"))
         self.time_label.pack(expand=True, fill="both")
         self.attributes("-topmost", True)
         self.bind("<Configure>", self.on_resize)
@@ -219,7 +235,7 @@ class TimerWindow(ctk.CTkToplevel):
             h_size = int(event.height * 0.6)
             w_size = int(event.width * 0.24)
             new_size = max(10, min(h_size, w_size))
-            self.time_label.configure(font=("Consolas", new_size, "bold"))
+            self.time_label.configure(font=(MONO_FONT, new_size, "bold"))
 
 
 class DebugWindow(ctk.CTkToplevel):
@@ -231,7 +247,7 @@ class DebugWindow(ctk.CTkToplevel):
         
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        self.textbox = ctk.CTkTextbox(self, state="disabled", font=("Consolas", 12))
+        self.textbox = ctk.CTkTextbox(self, state="disabled", font=(MONO_FONT, 12))
         self.textbox.pack(expand=True, fill="both", padx=10, pady=10)
 
         # Pull existing logs
@@ -306,14 +322,25 @@ class SettingsWindow(ctk.CTkToplevel):
         entry_widget.insert(0, "Press key...")
         
         def on_key(event):
-            if event.keysym in ['Control_L', 'Control_R', 'Shift_L', 'Shift_R', 'Alt_L', 'Alt_R', 'Win_L', 'Win_R']:
+            ignore = [
+                'Control_L', 'Control_R', 'Shift_L', 'Shift_R', 
+                'Alt_L', 'Alt_R', 'Win_L', 'Win_R', 
+                'Meta_L', 'Meta_R', 'Super_L', 'Super_R'
+            ]
+            if event.keysym in ignore:
                 return
                 
             self.unbind("<Key>")
             modifiers = []
-            if event.state & 0x0004: modifiers.append("Control")
-            if event.state & 0x0001: modifiers.append("Shift")
-            if event.state & 131072: modifiers.append("Alt")
+            if sys.platform == "darwin":
+                if event.state & 0x0008: modifiers.append("Command")
+                if event.state & 0x0004: modifiers.append("Control")
+                if event.state & 0x0001: modifiers.append("Shift")
+                if event.state & 0x0010: modifiers.append("Option")
+            else:
+                if event.state & 0x0004: modifiers.append("Control")
+                if event.state & 0x0001: modifiers.append("Shift")
+                if event.state & 131072: modifiers.append("Alt")
                 
             bind_str = f"<{'-'.join(modifiers + [event.keysym])}>" if modifiers else f"<{event.keysym}>"
             entry_widget.delete(0, "end")
@@ -322,10 +349,13 @@ class SettingsWindow(ctk.CTkToplevel):
         self.bind("<Key>", on_key)
 
     def apply_keybinds(self):
+        default_ok = DEFAULT_KEYBINDS["keybind_ok"]
+        default_dnf = DEFAULT_KEYBINDS["keybind_dnf"]
+        default_del = DEFAULT_KEYBINDS["keybind_delete"]
         try:
-            self.parent.unbind(app_settings.get("keybind_ok", "<Control-1>"))
-            self.parent.unbind(app_settings.get("keybind_dnf", "<Control-2>"))
-            self.parent.unbind(app_settings.get("keybind_delete", "<Control-3>"))
+            self.parent.unbind(app_settings.get("keybind_ok", default_ok))
+            self.parent.unbind(app_settings.get("keybind_dnf", default_dnf))
+            self.parent.unbind(app_settings.get("keybind_delete", default_del))
         except:
             pass
             
@@ -382,9 +412,9 @@ class FirewallTrackerApp(ctk.CTk):
         self.setup_streamer()
 
         self.bind("<space>", self.manual_trigger)
-        self.bind(app_settings.get("keybind_ok", "<Control-1>"), self.set_ok)
-        self.bind(app_settings.get("keybind_dnf", "<Control-2>"), self.set_dnf)
-        self.bind(app_settings.get("keybind_delete", "<Control-3>"), self.delete_last)
+        self.bind(app_settings.get("keybind_ok", DEFAULT_KEYBINDS["keybind_ok"]), self.set_ok)
+        self.bind(app_settings.get("keybind_dnf", DEFAULT_KEYBINDS["keybind_dnf"]), self.set_dnf)
+        self.bind(app_settings.get("keybind_delete", DEFAULT_KEYBINDS["keybind_delete"]), self.delete_last)
         
         self.update_stats_ui()
         self.update_timer_loop()
@@ -401,16 +431,24 @@ class FirewallTrackerApp(ctk.CTk):
                     latest_version = data.get("tag_name", "")
                     
                     if latest_version and latest_version.replace("v","") > CURRENT_VERSION.replace("v",""):
-                        exe_url = None
-                        for asset in data.get("assets", []):
-                            if asset.get("name", "").endswith(".exe"):
-                                exe_url = asset.get("browser_download_url")
-                                break
+                        download_url = None
+                        if sys.platform == "darwin":
+                            for asset in data.get("assets", []):
+                                aname = asset.get("name", "").lower()
+                                if "mac" in aname or aname.endswith(".zip") or aname.endswith(".dmg"):
+                                    download_url = asset.get("browser_download_url")
+                                    break
+                        else:
+                            for asset in data.get("assets", []):
+                                if asset.get("name", "").endswith(".exe"):
+                                    download_url = asset.get("browser_download_url")
+                                    break
                         
-                        if exe_url:
-                            self.after(2000 if not manual else 0, lambda: self.prompt_update(latest_version, exe_url))
+                        if download_url:
+                            self.after(2000 if not manual else 0, lambda: self.prompt_update(latest_version, download_url))
                         elif manual:
-                            self.after(0, lambda: __import__('tkinter.messagebox').messagebox.showinfo("Updater", "No .exe found in the latest release!"))
+                            ext = ".zip or .dmg" if sys.platform == "darwin" else ".exe"
+                            self.after(0, lambda: __import__('tkinter.messagebox').messagebox.showinfo("Updater", f"No {ext} found in the latest release!"))
                     elif manual:
                         self.after(0, lambda: __import__('tkinter.messagebox').messagebox.showinfo("Updater", f"You are on the latest version! ({CURRENT_VERSION})"))
             except Exception as e:
@@ -440,29 +478,33 @@ class FirewallTrackerApp(ctk.CTk):
         
         def download_thread():
             try:
-                exe_path = sys.executable
-                new_exe_path = os.path.join(APP_DIR, "firewall_tracker_new.exe")
+                import subprocess
+                filename = download_url.split("/")[-1]
+                download_dest = os.path.join(APP_DIR, filename)
                 
                 req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req) as response, open(new_exe_path, 'wb') as out_file:
+                with urllib.request.urlopen(req) as response, open(download_dest, 'wb') as out_file:
                     shutil.copyfileobj(response, out_file)
                 
-                bat_path = os.path.join(os.environ.get("TEMP", os.getcwd()), "update_tracker.bat")
-                
-                bat_content = f"""@echo off
+                if sys.platform == "darwin":
+                    # On macOS, reveal or open downloaded bundle in Finder and close app
+                    subprocess.Popen(["open", download_dest])
+                    self.after(500, self.destroy)
+                else:
+                    exe_path = sys.executable
+                    bat_path = os.path.join(os.environ.get("TEMP", os.getcwd()), "update_tracker.bat")
+                    bat_content = f"""@echo off
 timeout /t 2 /nobreak > NUL
-move /Y "{new_exe_path}" "{exe_path}"
+move /Y "{download_dest}" "{exe_path}"
 explorer.exe "{exe_path}"
 del "%~f0"
 """
-                with open(bat_path, "w") as f:
-                    f.write(bat_content)
-                
-                import subprocess
-                CREATE_NO_WINDOW = 0x08000000
-                subprocess.Popen(["cmd.exe", "/c", bat_path], creationflags=CREATE_NO_WINDOW)
-                
-                self.after(0, self.destroy)
+                    with open(bat_path, "w") as f:
+                        f.write(bat_content)
+                    
+                    CREATE_NO_WINDOW = 0x08000000
+                    subprocess.Popen(["cmd.exe", "/c", bat_path], creationflags=CREATE_NO_WINDOW)
+                    self.after(0, self.destroy)
                 
             except Exception as e:
                 self.after(0, lambda: dl_lbl.configure(text=f"Update failed:\n{e}"))
@@ -506,10 +548,10 @@ del "%~f0"
         self.popout_btn = ctk.CTkButton(self.top_frame, text="↗️ Popout", width=36, height=36, font=("Arial", 14, "bold"), command=self.open_timer_window)
         self.popout_btn.place(relx=0.0, rely=0.0, anchor="nw")
 
-        self.time_label = ctk.CTkLabel(self.top_frame, text="0.000", font=("Consolas", 80, "bold"))
+        self.time_label = ctk.CTkLabel(self.top_frame, text="0.000", font=(MONO_FONT, 80, "bold"))
         self.time_label.pack(expand=True, pady=(20, 0))
 
-        self.ao5_label = ctk.CTkLabel(self.top_frame, text="AO5: --.---", font=("Consolas", 24, "underline"))
+        self.ao5_label = ctk.CTkLabel(self.top_frame, text="AO5: --.---", font=(MONO_FONT, 24, "underline"))
         self.ao5_label.pack()
 
         # --- Actions Row ---
@@ -541,22 +583,22 @@ del "%~f0"
         ctk.CTkLabel(self.current_stats_frame, text="CURRENT STATS", font=("Arial", 10, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
         
         ctk.CTkLabel(self.current_stats_frame, text="AO5", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
-        self.lbl_curr_ao5 = ctk.CTkLabel(self.current_stats_frame, text="--.---", font=("Consolas", 22, "bold"))
+        self.lbl_curr_ao5 = ctk.CTkLabel(self.current_stats_frame, text="--.---", font=(MONO_FONT, 22, "bold"))
         self.lbl_curr_ao5.pack(anchor="w", padx=10)
         
         ctk.CTkLabel(self.current_stats_frame, text="AO12", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
-        self.lbl_curr_ao12 = ctk.CTkLabel(self.current_stats_frame, text="--.---", font=("Consolas", 22, "bold"))
+        self.lbl_curr_ao12 = ctk.CTkLabel(self.current_stats_frame, text="--.---", font=(MONO_FONT, 22, "bold"))
         self.lbl_curr_ao12.pack(anchor="w", padx=10)
         
         ctk.CTkLabel(self.current_stats_frame, text="AO100", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
-        self.lbl_curr_ao100 = ctk.CTkLabel(self.current_stats_frame, text="-", font=("Consolas", 18, "bold"))
+        self.lbl_curr_ao100 = ctk.CTkLabel(self.current_stats_frame, text="-", font=(MONO_FONT, 18, "bold"))
         self.lbl_curr_ao100.pack(anchor="w", padx=10, pady=(0, 10))
 
         # 2. Best Single
         self.best_single_frame = ctk.CTkFrame(self.stats_frame, fg_color="#4B77FF")
         self.best_single_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         ctk.CTkLabel(self.best_single_frame, text="BEST SINGLE", font=("Arial", 10, "bold"), text_color="white").pack(anchor="w", padx=10, pady=(10, 0))
-        self.lbl_best_single = ctk.CTkLabel(self.best_single_frame, text="--.---", font=("Consolas", 28, "bold"), text_color="white")
+        self.lbl_best_single = ctk.CTkLabel(self.best_single_frame, text="--.---", font=(MONO_FONT, 28, "bold"), text_color="white")
         self.lbl_best_single.pack(anchor="w", padx=10, pady=(0, 10))
 
         # 3. Best Stats
@@ -565,11 +607,11 @@ del "%~f0"
         ctk.CTkLabel(self.best_stats_frame, text="BEST STATS", font=("Arial", 10, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
         
         ctk.CTkLabel(self.best_stats_frame, text="AO12", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
-        self.lbl_best_ao12 = ctk.CTkLabel(self.best_stats_frame, text="--.---", font=("Consolas", 22, "bold"))
+        self.lbl_best_ao12 = ctk.CTkLabel(self.best_stats_frame, text="--.---", font=(MONO_FONT, 22, "bold"))
         self.lbl_best_ao12.pack(anchor="w", padx=10)
         
         ctk.CTkLabel(self.best_stats_frame, text="AO100", font=("Arial", 12), text_color="gray").pack(anchor="w", padx=10, pady=(5,0))
-        self.lbl_best_ao100 = ctk.CTkLabel(self.best_stats_frame, text="-", font=("Consolas", 18, "bold"))
+        self.lbl_best_ao100 = ctk.CTkLabel(self.best_stats_frame, text="-", font=(MONO_FONT, 18, "bold"))
         self.lbl_best_ao100.pack(anchor="w", padx=10, pady=(0, 10))
 
         # --- Right Column ---
@@ -582,22 +624,22 @@ del "%~f0"
         self.count_frame = ctk.CTkFrame(self.right_top_frame)
         self.count_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 5))
         ctk.CTkLabel(self.count_frame, text="FIREWALL COUNT", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
-        self.lbl_count = ctk.CTkLabel(self.count_frame, text="0", font=("Consolas", 24, "bold"))
+        self.lbl_count = ctk.CTkLabel(self.count_frame, text="0", font=(MONO_FONT, 24, "bold"))
         self.lbl_count.pack(anchor="w", padx=10, pady=(0, 10))
 
         self.mean_frame = ctk.CTkFrame(self.right_top_frame)
         self.mean_frame.grid(row=1, column=0, sticky="nsew", pady=(5, 0))
         ctk.CTkLabel(self.mean_frame, text="SESSION MEAN", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
-        self.lbl_mean = ctk.CTkLabel(self.mean_frame, text="--.---", font=("Consolas", 24, "bold"))
+        self.lbl_mean = ctk.CTkLabel(self.mean_frame, text="--.---", font=(MONO_FONT, 24, "bold"))
         self.lbl_mean.pack(anchor="w", padx=10, pady=(0, 10))
 
         # 5. Best AO5 Details
         self.best_ao5_frame = ctk.CTkFrame(self.stats_frame)
         self.best_ao5_frame.grid(row=1, column=1, rowspan=2, sticky="nsew", padx=5, pady=5)
         ctk.CTkLabel(self.best_ao5_frame, text="BEST AO5", font=("Arial", 12, "bold"), text_color="gray").pack(anchor="w", padx=10, pady=(10, 0))
-        self.lbl_best_ao5 = ctk.CTkLabel(self.best_ao5_frame, text="--.---", font=("Consolas", 28, "bold"), text_color="#4B77FF")
+        self.lbl_best_ao5 = ctk.CTkLabel(self.best_ao5_frame, text="--.---", font=(MONO_FONT, 28, "bold"), text_color="#4B77FF")
         self.lbl_best_ao5.pack(anchor="w", padx=10, pady=(0, 5))
-        self.lbl_best_ao5_details = ctk.CTkLabel(self.best_ao5_frame, text="-\n-\n-\n-\n-", font=("Consolas", 12), text_color="gray", justify="left")
+        self.lbl_best_ao5_details = ctk.CTkLabel(self.best_ao5_frame, text="-\n-\n-\n-\n-", font=(MONO_FONT, 12), text_color="gray", justify="left")
         self.lbl_best_ao5_details.pack(anchor="w", padx=10, pady=(0, 10))
 
     def on_top_frame_resize(self, event):
@@ -605,7 +647,7 @@ del "%~f0"
             h_size = int(event.height * 0.45)
             w_size = int(event.width * 0.12)
             new_size = max(10, min(h_size, w_size))
-            self.time_label.configure(font=("Consolas", new_size, "bold"))
+            self.time_label.configure(font=(MONO_FONT, new_size, "bold"))
 
     def toggle_stats(self):
         current_width = self.winfo_width()

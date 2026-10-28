@@ -12,12 +12,27 @@ A vibe coded (sorry) firewall tracker and timer used to track your time based on
 - **Theming**: Comes with multiple color themes because I'm such a theme larper
 
 ## Installation
+
+### Windows
 1. Go to the **Releases** tab on the right side of this GitHub page.
 2. Download the latest `firewall_tracker.exe`.
 3. Run the executable. (Note: Windows Defender may show a "Windows protected your PC" warning since the `.exe` is not code-signed. Click "More info" -> "Run anyway").
 
+### macOS
+1. Go to the **Releases** tab on the right side of this GitHub page.
+2. Download `Firewall-Tracker-macOS.zip` and extract it.
+3. Move `Firewall Tracker.app` into your **Applications** folder.
+4. *First Launch*: If macOS warns that the app cannot be opened because the developer cannot be verified, right-click `Firewall Tracker.app` -> click **Open** -> click **Open** again (or go to System Settings -> Privacy & Security -> Allow).
+
 ## Development
 To build the executable from source:
+
+### On Windows:
 1. Install Python 3.
-2. Install the required dependencies: `pip install customtkinter`
-3. Build using PyInstaller: `pyinstaller --noconsole --onefile --collect-all customtkinter firewall_tracker.py`
+2. Install dependencies: `pip install customtkinter pyinstaller darkdetect`
+3. Build with PyInstaller: `pyinstaller --noconsole --onefile --collect-all customtkinter firewall_tracker.py`
+
+### On macOS:
+1. Install Python 3.
+2. Double-click `build_mac.command` (or run `./build_mac.command` in Terminal).
+3. The standalone `Firewall Tracker.app` will be created in the `dist/` directory!
