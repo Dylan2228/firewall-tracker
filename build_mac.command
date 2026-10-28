@@ -20,11 +20,15 @@ python3 -m PyInstaller \
     --noconsole \
     --windowed \
     --onefile \
+    --noupx \
+    --osx-bundle-identifier "com.dylan.firewalltracker" \
     --collect-all customtkinter \
     --name "Firewall Tracker" \
     firewall_tracker.py
 
 if [ -d "dist/Firewall Tracker.app" ]; then
+    echo "Step 2b: Signing app bundle (ad-hoc) to satisfy macOS security..."
+    codesign --force --deep --sign - "dist/Firewall Tracker.app"
     echo "Step 3: Creating Firewall-Tracker.dmg (drag-and-drop installer)..."
     rm -rf dist/dmg_root
     mkdir -p dist/dmg_root

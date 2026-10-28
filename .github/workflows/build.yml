@@ -42,12 +42,13 @@ jobs:
       - name: Build Windows Executable
         if: runner.os == 'Windows'
         run: |
-          pyinstaller --noconsole --onefile --collect-all customtkinter firewall_tracker.py
+          pyinstaller --noconsole --onefile --noupx --uac-admin=0 --version-file=version_info.txt --collect-all customtkinter firewall_tracker.py
 
       - name: Build macOS App & DMG
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --noconsole --windowed --onefile --collect-all customtkinter --name "Firewall Tracker" firewall_tracker.py
+          pyinstaller --noconsole --windowed --onefile --noupx --osx-bundle-identifier "com.dylan.firewalltracker" --collect-all customtkinter --name "Firewall Tracker" firewall_tracker.py
+          codesign --force --deep --sign - "dist/Firewall Tracker.app"
           mkdir -p dist/dmg_root
           cp -R "dist/Firewall Tracker.app" dist/dmg_root/
           ln -s /Applications dist/dmg_root/Applications

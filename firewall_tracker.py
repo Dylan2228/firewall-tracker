@@ -5,7 +5,8 @@ import sys
 import json
 import threading
 import urllib.request
-import shutil
+import webbrowser
+from tkinter import messagebox
 from typing import List
 from roblox_console import RobloxConsoleStreamer
 
@@ -868,92 +869,30 @@ class FirewallTrackerApp(ctk.CTk):
     def check_for_updates(self, manual=False):
         def update_thread():
             try:
-                req = urllib.request.Request(GITHUB_API_URL, headers={'User-Agent': 'Mozilla/5.0'})
+                req = urllib.request.Request(GITHUB_API_URL, headers={'User-Agent': 'FirewallTracker-App'})
                 with urllib.request.urlopen(req, timeout=5) as response:
                     data = json.loads(response.read().decode())
                     latest_version = data.get("tag_name", "")
                     
                     if latest_version and latest_version.replace("v","") > CURRENT_VERSION.replace("v",""):
-                        download_url = None
-                        if sys.platform == "darwin":
-                            for asset in data.get("assets", []):
-                                aname = asset.get("name", "").lower()
-                                if "mac" in aname or aname.endswith(".zip") or aname.endswith(".dmg"):
-                                    download_url = asset.get("browser_download_url")
-                                    break
-                        else:
-                            for asset in data.get("assets", []):
-                                if asset.get("name", "").endswith(".exe"):
-                                    download_url = asset.get("browser_download_url")
-                                    break
-                        
-                        if download_url:
-                            self.after(2000 if not manual else 0, lambda: self.prompt_update(latest_version, download_url))
-                        elif manual:
-                            ext = ".zip or .dmg" if sys.platform == "darwin" else ".exe"
-                            self.after(0, lambda: __import__('tkinter.messagebox').messagebox.showinfo("Updater", f"No {ext} found in the latest release!"))
+                        release_url = data.get("html_url", "https://github.com/Dylan2228/firewall-tracker/releases/latest")
+                        self.after(2000 if not manual else 0, lambda: self.prompt_update(latest_version, release_url))
                     elif manual:
-                        self.after(0, lambda: __import__('tkinter.messagebox').messagebox.showinfo("Updater", f"You are on the latest version! ({CURRENT_VERSION})"))
+                        self.after(0, lambda: messagebox.showinfo("Updater", f"You are on the latest version! ({CURRENT_VERSION})"))
             except Exception as e:
                 self.after(0, self.log_debug, f"Update check failed: {e}")
                 if manual:
-                    self.after(0, lambda: __import__('tkinter.messagebox').messagebox.showerror("Updater Error", f"Failed to check for updates:\n{e}"))
+                    self.after(0, lambda: messagebox.showerror("Updater Error", f"Failed to check for updates:\n{e}"))
                 
         threading.Thread(target=update_thread, daemon=True).start()
 
-    def prompt_update(self, version, download_url):
-        import tkinter.messagebox
-        result = tkinter.messagebox.askyesno(
+    def prompt_update(self, version, release_url):
+        result = messagebox.askyesno(
             "Update Available", 
-            f"A new version of Firewall Tracker ({version}) is available!\n\nWould you like to download and install it now?"
+            f"A new version of Firewall Tracker ({version}) is available!\n\nWould you like to open the download page to update?"
         )
         if result:
-            self.perform_update(download_url)
-
-    def perform_update(self, download_url):
-        dl_win = ctk.CTkToplevel(self)
-        dl_win.title("Updating...")
-        dl_win.geometry("300x120")
-        dl_win.attributes("-topmost", True)
-        dl_lbl = ctk.CTkLabel(dl_win, text="Downloading update, please wait...", font=("Arial", 14))
-        dl_lbl.pack(expand=True)
-        self.update()
-        
-        def download_thread():
-            try:
-                import subprocess
-                filename = download_url.split("/")[-1]
-                download_dest = os.path.join(APP_DIR, filename)
-                
-                req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req) as response, open(download_dest, 'wb') as out_file:
-                    shutil.copyfileobj(response, out_file)
-                
-                if sys.platform == "darwin":
-                    # On macOS, reveal or open downloaded bundle in Finder and close app
-                    subprocess.Popen(["open", download_dest])
-                    self.after(500, self.destroy)
-                else:
-                    exe_path = sys.executable
-                    bat_path = os.path.join(os.environ.get("TEMP", os.getcwd()), "update_tracker.bat")
-                    bat_content = f"""@echo off
-timeout /t 2 /nobreak > NUL
-move /Y "{download_dest}" "{exe_path}"
-explorer.exe "{exe_path}"
-del "%~f0"
-"""
-                    with open(bat_path, "w") as f:
-                        f.write(bat_content)
-                    
-                    CREATE_NO_WINDOW = 0x08000000
-                    subprocess.Popen(["cmd.exe", "/c", bat_path], creationflags=CREATE_NO_WINDOW)
-                    self.after(0, self.destroy)
-                
-            except Exception as e:
-                self.after(0, lambda: dl_lbl.configure(text=f"Update failed:\n{e}"))
-                self.after(0, self.log_debug, f"Update failed: {e}")
-                
-        threading.Thread(target=download_thread, daemon=True).start()
+            webbrowser.open(release_url)
 
     def log_debug(self, msg):
         self.debug_logs.append(msg)
