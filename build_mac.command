@@ -36,3 +36,4 @@ if [ -d "dist/Firewall Tracker.app" ]; then
 else
     echo "Build completed. Check the 'dist' directory for the executable."
 fi
+
