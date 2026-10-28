@@ -423,21 +423,55 @@ class TimesHistoryWindow(ctk.CTkToplevel):
         self.scroll_frame = ctk.CTkScrollableFrame(self)
         self.scroll_frame.pack(expand=True, fill="both", padx=15, pady=10)
 
+        if sys.platform == "darwin":
+            try:
+                self.scroll_frame._parent_canvas.configure(yscrollincrement=2)
+            except Exception:
+                pass
+
+        self.bind_mousewheel(self.scroll_frame._parent_canvas)
+        self.bind_mousewheel(self.scroll_frame)
+
         self.render_times()
 
         # Auto infinite-scroll listener loop
         self.after(300, self.check_scroll_loop)
 
-    def check_scroll_loop(self):
-        if not self.winfo_exists():
-            return
+    def bind_mousewheel(self, widget):
+        widget.bind("<MouseWheel>", self.on_mousewheel, add="+")
+        for child in widget.winfo_children():
+            self.bind_mousewheel(child)
+
+    def on_mousewheel(self, event):
+        canvas = self.scroll_frame._parent_canvas
+        if sys.platform == "darwin":
+            # On macOS, trackpads send high-frequency small deltas (+/-1 to 5).
+            # A multiplier of 3 gives buttery smooth, responsive native trackpad feel!
+            scroll_units = -1 * int(event.delta * 3) if event.delta != 0 else 0
+            if scroll_units != 0:
+                canvas.yview_scroll(scroll_units, "units")
+        else:
+            scroll_units = -1 * int(event.delta / 40) if event.delta != 0 else 0
+            if scroll_units != 0:
+                canvas.yview_scroll(scroll_units, "units")
+
+        self.check_auto_load()
+        return "break"
+
+    def check_auto_load(self):
         try:
             _, bottom = self.scroll_frame._parent_canvas.yview()
-            if bottom >= 0.82 and self.loaded_count < len(self.indexed_runs) and not self.is_loading:
+            # If scrolled past 70% of the list, load the next 20 seamlessly
+            if bottom >= 0.70 and self.loaded_count < len(self.indexed_runs) and not self.is_loading:
                 self.load_more()
         except Exception:
             pass
-        self.after(200, self.check_scroll_loop)
+
+    def check_scroll_loop(self):
+        if not self.winfo_exists():
+            return
+        self.check_auto_load()
+        self.after(100, self.check_scroll_loop)
 
     def on_sort_change(self, choice):
         self.sort_mode = choice
@@ -564,6 +598,8 @@ class TimesHistoryWindow(ctk.CTkToplevel):
                 command=lambda r_idx=orig_idx-1, f=row_frame: self.show_context_menu(r_idx, f)
             )
             btn_dots.grid(row=0, column=4, padx=(5, 10), pady=8)
+
+            self.bind_mousewheel(row_frame)
 
         # Show load more footer if there are remaining runs
         if self.loaded_count < len(self.indexed_runs):

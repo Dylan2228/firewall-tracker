@@ -19,10 +19,11 @@ A vibe coded (sorry) firewall tracker and timer used to track your time based on
 3. Run the executable. (Note: Windows Defender may show a "Windows protected your PC" warning since the `.exe` is not code-signed. Click "More info" -> "Run anyway").
 
 ### macOS
-1. Go to the **Releases** tab on the right side of this GitHub page.
-2. Download `Firewall-Tracker-macOS.zip` and extract it.
-3. Move `Firewall Tracker.app` into your **Applications** folder.
-4. *First Launch*: If macOS warns that the app cannot be opened because the developer cannot be verified, right-click `Firewall Tracker.app` -> click **Open** -> click **Open** again (or go to System Settings -> Privacy & Security -> Allow).
+1. Go to the **Releases** tab on the right side of this GitHub page (or download the latest build from Actions).
+2. Download `Firewall-Tracker.dmg`.
+3. Double-click `Firewall-Tracker.dmg` to open the installer disk.
+4. Drag `Firewall Tracker` into the `Applications` shortcut. Done! No Terminal needed.
+5. *First Launch*: If macOS warns that the app cannot be opened because the developer cannot be verified, right-click `Firewall Tracker.app` in Applications -> click **Open** -> click **Open** again (or go to System Settings -> Privacy & Security -> Open Anyway).
 
 ## Development
 To build the executable from source:
